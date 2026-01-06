@@ -317,7 +317,7 @@ def init_db():
 def load_data(query, params=None):
     """Loads data from Supabase using Streamlit SQL connection."""
     # Note: PostgreSQL uses :name for parameters in SQLAlchemy-based connections
-    return conn_db.query(query, params=params, ttl=0)
+    return conn_db.query(query, params=params, ttl=300)
 
 
 def execute_query(query, params=None):
