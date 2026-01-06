@@ -64,6 +64,7 @@ snowflake-connector-python==4.1.1
 snowflake-snowpark-python==1.44.0
 sortedcontainers==2.4.0
 soupsieve==2.8.1
+SQLAlchemy==2.0.45
 st-annotated-text==4.0.2
 st-theme==1.2.3
 streamlit==1.52.2
