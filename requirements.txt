@@ -89,6 +89,5 @@ urllib3==2.6.2
 validators==0.35.0
 watchdog==6.0.0
 wheel==0.45.1
-google-api-python-client
-google-auth-httplib2
-google-auth-oauthlib
+sqlalchemy
+psycopg2-binary
