@@ -392,7 +392,7 @@ def calculate_status():
     
     return merged, total_budget, total_spent, remaining
 
-
+@st.fragment
 def message_board():
     st.title("📋 Community Message Board")
     
@@ -415,7 +415,6 @@ def message_board():
             execute_query(query, params)
             
             st.success("Message posted!")
-            st.rerun()
 
     st.markdown("---")
     
