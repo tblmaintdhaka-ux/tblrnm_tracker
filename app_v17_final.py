@@ -16,21 +16,6 @@ def init_connection():
 
 supabase = init_connection()
 
-# CACHE THE DATA CALL
-@st.cache_data(ttl=600) # Cache for 10 minutes
-def get_data():
-    return supabase.table("budget_heads").select("*").execute()
-    return supabase.table("requests").select("*").execute()
-    return supabase.table("users").select("*").execute()
-    return supabase.table("messages").select("*").execute()
-    return supabase.table("exchange_config").select("*").execute()
-    return supabase.table("event_log").select("*").execute()
-    return supabase.table("lc_po_tracker").select("*").execute()
-    return supabase.table("indent_purchase_record").select("*").execute()
-    return supabase.table("indent_goods_details").select("*").execute()
-    return supabase.table("standalone_indents").select("*").execute()
-data = get_data()
-
 main_logo = "https://tbl.com.bd/frontend/img/products/3.png"
 icon_logo = "https://tbl.com.bd/frontend/img/products/3.png" 
 
@@ -451,7 +436,9 @@ def message_board():
 
 # --- APP LAYOUT ---
 st.set_page_config(page_title="TBL R&M Tracker 2026", layout="wide")
-init_db()
+if 'db_initialized' not in st.session_state:
+    init_db()
+    st.session_state['db_initialized'] = True
 
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
