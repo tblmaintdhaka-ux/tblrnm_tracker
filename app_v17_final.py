@@ -952,7 +952,7 @@ else:
             plant_remarks = st.text_area("Plant Remarks/Notes")
         st.markdown("---")
 
-        with st.form("mn_submission_form"):
+        with st.form("mn_submission_form", clear_on_submit=True):
             st.markdown("*Fields marked with a * or ** are mandatory.")
             submitted = st.form_submit_button("Submit Request")
             if st.session_state['mn_submission_result']:
