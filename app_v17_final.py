@@ -15,6 +15,13 @@ def init_connection():
     return create_client(url, key)
 
 supabase = init_connection()
+# Quick test to see if the bucket is accessible
+try:
+    buckets = supabase.storage.list_buckets()
+    print("Buckets found:", buckets)
+except Exception as e:
+    st.error(f"Storage Error: {e}")
+
 
 main_logo = "https://tbl.com.bd/frontend/img/products/3.png"
 icon_logo = "https://tbl.com.bd/frontend/img/products/3.png" 
@@ -182,7 +189,8 @@ def init_db():
                     landed_total_cost REAL,
                     date_sent_ho TEXT,
                     plant_remarks TEXT,
-                    FOREIGN KEY(cost_area) REFERENCES budget_heads(cost_area)
+                    FOREIGN KEY(cost_area) REFERENCES budget_heads(cost_area),
+                    pdf_file_path TEXT
                 )''')
                 
     # Table 3: User Management
@@ -417,9 +425,9 @@ def message_board():
             st.success("Message posted!")
 
     st.markdown("---")
-    
     # Display Messages Section
-    messages_df = load_data("SELECT username, message, timestamp FROM messages ORDER BY timestamp DESC LIMIT 50")
+    with st.spinner("Fetching latest messages..."):
+        messages_df = load_data("SELECT username, message, timestamp FROM messages ORDER BY timestamp DESC LIMIT 50")
     
     if not messages_df.empty:
         for index, row in messages_df.iterrows():
@@ -435,9 +443,11 @@ def message_board():
 
 # --- APP LAYOUT ---
 st.set_page_config(page_title="TBL R&M Tracker 2026", layout="wide")
+# Only run init_db once per session to save latency
 if 'db_initialized' not in st.session_state:
-    init_db()
-    st.session_state['db_initialized'] = True
+    with st.spinner("Initializing database connection..."):
+        init_db()
+        st.session_state['db_initialized'] = True
 
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
@@ -547,7 +557,7 @@ else:
             "📋 Message Board",
             "💰 LC/PO & Payment Tracker", 
             "🛒 Indent & Purchase Record", 
-            "📜 Event Log"
+            "📜 Event Log",
         ]
         
     # Administrator: All pages
@@ -561,7 +571,8 @@ else:
             "🛒 Indent & Purchase Record", 
             "⚙️ Budget Setup & Import",
             "👥 Users & Access Control",
-            "📜 Event Log"
+            "📜 Event Log",
+            "📂 View Documents"
         ]
         
     st.sidebar.markdown("---")
@@ -590,8 +601,8 @@ else:
         }
         customs_duty_pct = config_dict.get('CustomsDuty_pct', 0.05)
         
-        df_status, total_budget, total_spent, remaining = calculate_status()
-        
+        with st.spinner("Calculating budget status and loading data..."):
+            df_status, total_budget, total_spent, remaining = calculate_status()        
         if not df_status.empty:
             col1, col2, col3 = st.columns(3)
             col1.metric("Total Budget 2026 (BDT)", f"{total_budget:,.2f}")
@@ -632,16 +643,17 @@ else:
                         
                     if st.form_submit_button("Apply Status Change"):
                         if selected_id:
-                            # 2. Pass the parameters as a dictionary
-                            query = "UPDATE requests SET status = :status WHERE id = :id"
-                            params = {"status": new_status, "id": selected_id}
-                            
-                            execute_query(query, params)
-                            
-                            log_event("MN_STATUS_CHANGE", f"MN ID {selected_id} status changed from {current_status} to {new_status}.")
-                            calculate_status.clear()
-                            st.success(f"Status for Request ID {selected_id} updated to **{new_status}**.")
-                            st.rerun()
+                            with st.spinner("Updating status in database..."):
+                                # 2. Pass the parameters as a dictionary
+                                query = "UPDATE requests SET status = :status WHERE id = :id"
+                                params = {"status": new_status, "id": selected_id}
+                                
+                                execute_query(query, params)
+                                
+                                log_event("MN_STATUS_CHANGE", f"MN ID {selected_id} status changed from {current_status} to {new_status}.")
+                                calculate_status.clear()
+                                st.success(f"Status for Request ID {selected_id} updated to **{new_status}**.")
+                                st.rerun()
                         else:
                             st.warning("Please select a request.")
                             
@@ -692,9 +704,21 @@ else:
                         selected_department = st.selectbox("Department *", departments, 
                                                            index=departments.index(original_data['department']))
                     with col3:
-                        cost_areas_filtered = budgets[budgets['department'] == selected_department]['cost_area'].unique().tolist()
-                        area = st.selectbox("Cost Area *", sorted(cost_areas_filtered), 
-                                            index=sorted(cost_areas_filtered).index(original_data['cost_area']))
+                        # --- ORIGINAL CODE (Lines 696-697) ---
+                        # cost_areas_filtered = budgets[budgets['department'] == selected_department]['cost_area'].unique().tolist()
+                        # area = st.selectbox("Cost Area *", sorted(cost_areas_filtered), 
+                        #                    index=sorted(cost_areas_filtered).index(original_data['cost_area']))
+                        
+                        # --- UPDATED CODE ---
+                        cost_areas_filtered = sorted(budgets[budgets['department'] == selected_department]['cost_area'].unique().tolist())
+                        
+                        # Check if the original cost area is still valid for the selected department
+                        if original_data['cost_area'] in cost_areas_filtered:
+                            default_index = cost_areas_filtered.index(original_data['cost_area'])
+                        else:
+                            default_index = 0  # Default to the first available area if department changed
+                        
+                        area = st.selectbox("Cost Area *", cost_areas_filtered, index=default_index)
                         location = st.text_input("Location *", value=original_data['location'])
                     
                     mn_particulars = st.text_area("MN Particulars/Detailed Description of Work * (Max 200 chars)", 
@@ -735,9 +759,8 @@ else:
                         plant_remarks = st.text_area("Plant Remarks/Notes", value=original_data['plant_remarks'])
 
                     st.markdown("---")
-                    col_save, col_cancel = st.columns(2)
-                    save_button = col_save.form_submit_button("💾 Save Edited Request", type="primary")
-                    cancel_button = col_cancel.form_submit_button("❌ Cancel Edit", type="secondary")
+                    save_button = st.form_submit_button("💾 Save Edited Request", type="primary")
+                    cancel_button = st.form_submit_button("❌ Cancel Edit")                    
                     
                     if cancel_button:
                         st.session_state['show_admin_edit'] = False
@@ -847,6 +870,7 @@ else:
             col_filter_1, col_filter_2, col_filter_3 = st.columns(3)
             with col_filter_1:
                 selected_status = st.multiselect("Filter by Status", requests_df['status'].unique(), default=[])
+                selected_category = st.multiselect("Filter By MN Category", requests_df['mn_category'].unique(), default=[])
             with col_filter_2:
                 selected_area = st.multiselect("Filter by Cost Center", requests_df['cost_area'].unique(), default=[])
             with col_filter_3:
@@ -854,6 +878,7 @@ else:
 
             filtered_df = requests_df.copy()
             if selected_status: filtered_df = filtered_df[filtered_df['status'].isin(selected_status)]
+            if selected_category: filtered_df = filtered_df[filtered_df['mn_category'].isin(selected_category)]
             if selected_area: filtered_df = filtered_df[filtered_df['cost_area'].isin(selected_area)]
             if selected_supplier_type: filtered_df = filtered_df[filtered_df['supplier_type'].isin(selected_supplier_type)]
             
@@ -950,16 +975,28 @@ else:
             date_sent_ho = st.date_input("Date of Sending To HO *", value=datetime.now())
         with col_remarks:
             plant_remarks = st.text_area("Plant Remarks/Notes")
-        st.markdown("---")
-
-        with st.form("mn_submission_form", clear_on_submit=True):
+        
+        st.subheader("4. Document Attachment")
+        uploaded_file = st.file_uploader("Upload PDF Copy * (Max 1MB)", type=["pdf"])
+        
+        # 2. Size Validation logic (1MB = 1,048,576 bytes)
+        MAX_FILE_SIZE = 1 * 1024 * 1024 
+        
+        if uploaded_file:
+            if uploaded_file.size > MAX_FILE_SIZE:
+                st.error("⚠️ File is too large! Please upload a PDF smaller than 1MB.")
+                uploaded_file = None # Reset the file variable
+        
+        with st.form("mn_submission_form"):
             st.markdown("*Fields marked with a * or ** are mandatory.")
-            submitted = st.form_submit_button("Submit Request")
+            st.markdown("---")
+            submitted = st.form_submit_button("Submit New Request", type="primary")
             if st.session_state['mn_submission_result']:
                 if st.session_state['mn_submission_status'] == 'success':
                     st.success(st.session_state['mn_submission_result'])
                 elif st.session_state['mn_submission_status'] == 'error':
-                    st.error(st.session_state['mn_submission_result'])            
+                    st.error(st.session_state['mn_submission_result'])   
+                    # Ensure validation:
             if submitted:
                 # 1. MN Number Regex Validation
                 # Pattern explains: 3 uppercase letters / 3 digits / 4 digits
@@ -1014,7 +1051,25 @@ else:
                     st.session_state['mn_submission_result'] = f"⚠️ Budget Exceeded! '{area}' only has **{curr_remaining:,.2f} BDT** remaining."
                     st.session_state['mn_submission_status'] = 'error'
                     st.rerun()
-
+                    
+                if uploaded_file:
+                    pdf_file_path = None
+                    # Construct a unique file path
+                    file_path_in_bucket = f"mn_attachments/{mn_no}_{datetime.now().strftime('%Y%m%d%H%M')}.pdf"
+                    
+                    try:
+                        supabase.storage.from_("mn_files").upload(
+                            path=file_path_in_bucket, 
+                            file=uploaded_file.getvalue(),
+                            file_options={"content-type": "application/pdf"}
+                        )  
+                        # Add file_path to your params for the INSERT query
+                        
+                        pdf_file_path = file_path_in_bucket
+                    except Exception as e:
+                        st.error(f"Failed to upload document: {e}")
+                        st.stop()            
+                        
                 date_issue_str = mn_issue_date.strftime("%Y-%m-%d")
                 date_ho_str = date_sent_ho.strftime("%Y-%m-%d")
                 
@@ -1024,13 +1079,13 @@ else:
                             status, mn_particulars, mn_category, department, location, 
                             supplier_vendor, supplier_type, currency, foreign_spare_cost, 
                             freight_fca_charges, customs_duty_rate, local_cost_wo_vat_ait, 
-                            vat_ait, landed_total_cost, date_sent_ho, plant_remarks
+                            vat_ait, landed_total_cost, date_sent_ho, plant_remarks, pdf_file_path
                         ) VALUES (
                             :mn_no, :issue_date, :logged, :req, :area, :est_cost, 
                             :status, :particulars, :cat, :dept, :loc, 
                             :vendor, :s_type, :curr, :f_spare, 
                             :freight, :customs, :local_cost, 
-                            :vat, :landed, :ho_date, :remarks
+                            :vat, :landed, :ho_date, :remarks, :pdf_path
                         )'''
                 
                 # 2. Convert params to a Dictionary
@@ -1056,12 +1111,13 @@ else:
                     "vat": vat_ait,
                     "landed": landed_total_cost,
                     "ho_date": date_ho_str,
-                    "remarks": plant_remarks
+                    "remarks": plant_remarks,
+                    "pdf_path": pdf_file_path,
                 }
 
                 # 3. Execute with dictionary
                 execute_query(query, params)
-                
+                log_event("MN_SUBMISSION", f"New MN {params['mn_no']} submitted with PDF attachment.")
                 calculate_status.clear()
                 st.session_state['mn_submission_result'] = f"✅ MN Request Successful: Request **{mn_no}** submitted successfully!"
                 st.session_state['mn_submission_status'] = 'success'
@@ -1120,7 +1176,7 @@ else:
 
         # --- 2. MN REQUEST STATUS SUMMARY & DRILL-DOWN ---
         st.subheader("MN Request Status Summary")
-        status_raw = load_data("SELECT status, mn_number FROM requests")
+        status_raw = load_data("SELECT status, mn_number FROM requests ORDER BY mn_number ASC")
         
         if not status_raw.empty:
             counts = status_raw['status'].value_counts().reset_index()
@@ -1825,6 +1881,58 @@ else:
             mime='text/csv',
             key='download_users'
         )
+    # --- VIEW DOCUMENTS PAGE LOGIC ---
+    elif page_name == "View Documents":
+        st.title("MN Document Viewer")
+
+        # 1. Fetch records that have an attachment
+        try:
+            # We filter for paths that aren't empty
+            docs_df = load_data("SELECT mn_number, pdf_file_path FROM requests WHERE pdf_file_path IS NOT NULL AND pdf_file_path != ''")
+            
+            if docs_df.empty:
+                st.info("No documents found in the database. Please ensure you have uploaded a PDF during the MN Request process.")
+            else:
+                st.success(f"Found {len(docs_df)} documents.")
+                mn_list = docs_df['mn_number'].tolist()
+                selected_mn = st.selectbox("Select MN Number to View PDF", ["---"] + mn_list)
+                
+                if selected_mn != "---":
+                    # Get the raw path from the database (e.g., "/mn_files/mn_attachments/file.pdf")
+                    db_path = docs_df[docs_df['mn_number'] == selected_mn]['pdf_file_path'].iloc[0]
+                    
+                    # CLEAN THE PATH: Remove the bucket prefix so Supabase can find it
+                    # This changes "/mn_files/mn_attachments/..." to "mn_attachments/..."
+                    clean_path = db_path.replace("/mn_files/", "").lstrip("/")
+                    
+                    try:
+                        # 2. Create a signed URL
+                        # Note: In most recent supabase-py versions, this returns the URL string directly.
+                        # We use a check to handle both old (dict) and new (string) response formats.
+                        response = supabase.storage.from_("mn_files").create_signed_url(clean_path, 60)
+                        
+                        signed_url = None
+                        if isinstance(response, dict) and 'signedURL' in response:
+                            signed_url = response['signedURL']
+                        elif isinstance(response, str):
+                            signed_url = response
+                            
+                        if signed_url:
+                            # 3. Embed the PDF using an iframe
+                            # Added 'type="application/pdf"' to help browsers recognize the content
+                            pdf_display = f'<iframe src="{signed_url}" width="100%" height="800px" style="border:none;" type="application/pdf"></iframe>'
+                            st.markdown(pdf_display, unsafe_allow_html=True)
+                            
+                            # Provide a fallback link
+                            st.markdown(f"**[🔗 Open Document in New Tab]({signed_url})**")
+                        else:
+                            st.error(f"Could not generate access link. Check if file exists at: {clean_path}")
+                            
+                    except Exception as e:
+                        st.error(f"Error retrieving file from Supabase Storage: {e}")
+                        
+        except Exception as e:
+            st.error(f"Database Error: Could not fetch document list. Error: {e}")
 
     # --- TAB 7: EVENT LOG ---
     elif page_name == "Event Log":
@@ -2104,4 +2212,3 @@ else:
             c1.metric("Total Recorded Amount", f"{total_recorded:,.2f} BDT")
             c2.metric("Total Cash Amount", f"{cash_total:,.2f} BDT")
             c3.metric("Total Cheque Amount", f"{cheque_total:,.2f} BDT")
-            # ------------------------------
